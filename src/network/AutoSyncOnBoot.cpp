@@ -20,7 +20,7 @@ namespace {
 constexpr const char* TAG = "AUTOSYNC";
 
 // Draw a simple centered status screen. `line2` may be empty.
-void drawStatus(GfxRenderer& renderer, const char* title, const std::string& line1, const std::string& line2) {
+void drawStatus(const GfxRenderer& renderer, const char* title, const std::string& line1, const std::string& line2) {
   const int h = renderer.getScreenHeight();
   renderer.clearScreen();
   renderer.drawCenteredText(NOTOSANS_16_FONT_ID, h / 2 - 70, title);
@@ -53,7 +53,7 @@ void settleButtons(HalGPIO& gpio) {
 
 namespace AutoSyncOnBoot {
 
-void run(GfxRenderer& renderer, HalGPIO& gpio) {
+void run(const GfxRenderer& renderer, HalGPIO& gpio) {
   if (!SETTINGS.autoSyncOnBoot) {
     return;
   }

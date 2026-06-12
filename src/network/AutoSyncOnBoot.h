@@ -23,6 +23,6 @@ namespace AutoSyncOnBoot {
 // Run the boot-time sync window (blocking). No-op when the setting is disabled
 // or (when charger-only is set) the device is not on USB power. Always leaves
 // Wi-Fi powered off on return.
-void run(GfxRenderer& renderer, HalGPIO& gpio);
+void run(const GfxRenderer& renderer, HalGPIO& gpio);
 
 }  // namespace AutoSyncOnBoot
