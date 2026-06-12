@@ -165,8 +165,7 @@ void run(GfxRenderer& renderer, HalGPIO& gpio) {
     if (remainingMin != lastShownMinute) {
       lastShownMinute = remainingMin;
       esp_task_wdt_reset();
-      drawStatus(renderer, "Auto-Sync", "Ready at " + ip,
-                 "Closing in ~" + std::to_string(remainingMin) + " min");
+      drawStatus(renderer, "Auto-Sync", "Ready at " + ip, "Closing in ~" + std::to_string(remainingMin) + " min");
     }
   }
 

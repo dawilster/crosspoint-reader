@@ -29,9 +29,9 @@
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
-#include "network/AutoSyncOnBoot.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
+#include "network/AutoSyncOnBoot.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 
