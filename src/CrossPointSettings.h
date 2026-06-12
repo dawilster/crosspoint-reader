@@ -244,6 +244,15 @@ class CrossPointSettings {
   uint8_t removeReadBooksFromRecents = 0;
   // Move epub to /Read/ folder on SD card when finished (0 = disabled, 1 = enabled)
   uint8_t moveFinishedToReadFolder = 0;
+  // --- Auto-sync on boot ---
+  // Open the Wi-Fi file-transfer server automatically at startup for a short
+  // window so a watching host (e.g. crosspoint_sync.py --serve) can push books
+  // with zero interaction (0 = off, 1 = on).
+  uint8_t autoSyncOnBoot = 0;
+  // How long (minutes) to keep the sync window open at boot.
+  uint8_t autoSyncMinutes = 2;
+  // Only run the auto-sync window when on USB/charger power (0 = always, 1 = charger only).
+  uint8_t autoSyncChargerOnly = 0;
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
   // Tilt-based page turning (X3 only — requires QMI8658 IMU)
@@ -261,6 +270,9 @@ class CrossPointSettings {
   static constexpr uint8_t MIN_SLEEP_TIMEOUT_MINUTES = 1;
   static constexpr uint8_t SLEEP_TIMEOUT_NEVER_MINUTES = 31;
   static constexpr uint8_t MAX_SLEEP_TIMEOUT_MINUTES = SLEEP_TIMEOUT_NEVER_MINUTES;
+
+  static constexpr uint8_t MIN_AUTO_SYNC_MINUTES = 1;
+  static constexpr uint8_t MAX_AUTO_SYNC_MINUTES = 10;
 
   // Callback to resolve SD card font IDs. Set by SdCardFontSystem::begin().
   // Returns font ID or 0 if not found.

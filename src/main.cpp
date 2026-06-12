@@ -29,6 +29,7 @@
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
+#include "network/AutoSyncOnBoot.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
 #include "util/ButtonNavigator.h"
@@ -427,6 +428,13 @@ void setup() {
     case BootResume::Splash:
       activityManager.goToBoot();
       break;
+  }
+
+  // Optional auto-sync window: open the file-transfer server for a short period
+  // right after boot so a watching host can push books with no interaction.
+  // Skipped on recovery/panic/silent reboots (not genuine user-initiated boots).
+  if (!recoveryFirmwareMode && !HalSystem::isRebootFromPanic() && resume != BootResume::Silent) {
+    AutoSyncOnBoot::run(renderer, gpio);
   }
 
   if (recoveryFirmwareMode) {
