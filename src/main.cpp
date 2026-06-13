@@ -31,6 +31,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
+#include "network/HubSync.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 
@@ -427,6 +428,13 @@ void setup() {
     case BootResume::Splash:
       activityManager.goToBoot();
       break;
+  }
+
+  // Pull-on-launch: fetch new books / the daily card from the hub before the UI
+  // starts. No-op without /.crosspoint/hub.json. Skipped on recovery/panic/silent
+  // reboots (not genuine user-initiated boots).
+  if (!recoveryFirmwareMode && !HalSystem::isRebootFromPanic() && resume != BootResume::Silent) {
+    HubSync::run(renderer, gpio);
   }
 
   if (recoveryFirmwareMode) {
