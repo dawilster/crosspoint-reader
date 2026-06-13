@@ -3,6 +3,7 @@
 #include <DNSServer.h>
 #include <ESPmDNS.h>
 #include <GfxRenderer.h>
+#include <HalGPIO.h>
 #include <I18n.h>
 #include <WiFi.h>
 #include <esp_task_wdt.h>
@@ -16,6 +17,7 @@
 #include "activities/network/CalibreConnectActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/HubSync.h"
 #include "util/QrUtils.h"
 
 namespace {
@@ -360,6 +362,13 @@ void CrossPointWebServerActivity::loop() {
       onGoHome();
       return;
     }
+
+    // Manual "Sync now" — pull from the hub over the already-connected Wi-Fi
+    // (STA mode only; a hotspot has no upstream internet).
+    if (!isApMode && mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+      HubSync::syncNow(renderer, gpio);
+      requestUpdate();
+    }
   }
 }
 
@@ -462,7 +471,7 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     renderer.drawCenteredText(SMALL_FONT_ID, startY, hostnameUrl.c_str(), true);
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_EXIT), "", "", "");
+  const auto labels = mappedInput.mapLabels(tr(STR_EXIT), isApMode ? "" : tr(STR_SYNC_NOW), "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 

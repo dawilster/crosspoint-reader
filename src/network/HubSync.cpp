@@ -9,9 +9,11 @@
 #include <WiFi.h>
 #include <esp_task_wdt.h>
 
+#include <ctime>
 #include <string>
 #include <vector>
 
+#include "../CrossPointSettings.h"
 #include "../WifiCredentialStore.h"
 #include "../fontIds.h"
 #include "HttpDownloader.h"
@@ -21,6 +23,7 @@ namespace {
 constexpr const char* TAG = "HUBSYNC";
 constexpr const char* CONFIG_PATH = "/.crosspoint/hub.json";
 constexpr const char* SYNCED_PATH = "/.crosspoint/synced.json";
+constexpr const char* LAST_SYNC_KEY = "__lastSync";
 
 struct HubConfig {
   std::string url;
@@ -81,29 +84,21 @@ bool loadConfig(HubConfig& cfg) {
   cfg.token = (doc["token"] | "");
   cfg.device = (doc["device"] | "x4");
   cfg.enabled = (doc["enabled"] | true);
-  // Trim a trailing slash on the base URL.
   while (!cfg.url.empty() && cfg.url.back() == '/') cfg.url.pop_back();
   return !cfg.url.empty() && !cfg.token.empty();
 }
 
-bool connectWifi(HalGPIO& gpio) {
-  WIFI_STORE.loadFromFile();
-  const std::string ssid = WIFI_STORE.getLastConnectedSsid();
-  if (ssid.empty()) return false;
-  const WifiCredential* cred = WIFI_STORE.findCredential(ssid);
-
-  WiFi.persistent(false);
-  WiFi.mode(WIFI_STA);
-  WiFi.setHostname("crosspoint");
-  if (cred != nullptr && !cred->password.empty()) {
-    WiFi.begin(ssid.c_str(), cred->password.c_str());
+bool tryConnect(const std::string& ssid, const std::string& pass, HalGPIO& gpio, unsigned long timeoutMs) {
+  WiFi.disconnect(true, true);
+  delay(50);
+  if (!pass.empty()) {
+    WiFi.begin(ssid.c_str(), pass.c_str());
   } else {
     WiFi.begin(ssid.c_str());
   }
-
   const unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - start > 20000) return false;
+    if (millis() - start > timeoutMs) return false;
     gpio.update();
     if (gpio.wasAnyPressed()) return false;  // user skip
     esp_task_wdt_reset();
@@ -112,7 +107,27 @@ bool connectWifi(HalGPIO& gpio) {
   return true;
 }
 
-// path -> local target on the SD card
+// Try the last-used network first, then fall back to every other saved network.
+bool connectWifi(const GfxRenderer& renderer, HalGPIO& gpio) {
+  WIFI_STORE.loadFromFile();
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_STA);
+  WiFi.setHostname("crosspoint");
+
+  const std::string last = WIFI_STORE.getLastConnectedSsid();
+  if (!last.empty()) {
+    const WifiCredential* c = WIFI_STORE.findCredential(last);
+    drawStatus(renderer, "Hub Sync", "Connecting: " + last, "");
+    if (tryConnect(last, c != nullptr ? c->password : std::string(), gpio, 12000)) return true;
+  }
+  for (const WifiCredential& c : WIFI_STORE.getCredentials()) {
+    if (c.ssid == last) continue;  // already tried
+    drawStatus(renderer, "Hub Sync", "Connecting: " + c.ssid, "");
+    if (tryConnect(c.ssid, c.password, gpio, 12000)) return true;
+  }
+  return false;
+}
+
 std::string targetPath(const Entry& e) {
   if (e.type == "sleep") return "/sleep.bmp";
   std::string p = e.path;
@@ -120,25 +135,9 @@ std::string targetPath(const Entry& e) {
   return p;
 }
 
-}  // namespace
-
-namespace HubSync {
-
-void run(const GfxRenderer& renderer, HalGPIO& gpio) {
-  HubConfig cfg;
-  if (!loadConfig(cfg) || !cfg.enabled) {
-    return;  // no config => feature off
-  }
-
-  LOG_INF(TAG, "Hub sync starting (%s)", cfg.url.c_str());
-  drawStatus(renderer, "Hub Sync", "Connecting to Wi-Fi", "");
-  if (!connectWifi(gpio)) {
-    drawStatus(renderer, "Hub Sync", "Wi-Fi unavailable", "");
-    delay(1200);
-    wifiOff();
-    return;
-  }
-
+// Core sync: fetch the manifest and delta-download. Returns downloaded count, or
+// -1 on failure. Assumes Wi-Fi is already connected. Updates the local record.
+int doSync(const HubConfig& cfg, const GfxRenderer& renderer, HalGPIO& gpio) {
   drawStatus(renderer, "Hub Sync", "Checking for updates", "");
   const std::string manifestUrl = cfg.url + "/api/device/manifest?token=" + cfg.token + "&device=" + cfg.device;
   std::string json;
@@ -146,8 +145,7 @@ void run(const GfxRenderer& renderer, HalGPIO& gpio) {
     LOG_ERR(TAG, "manifest fetch failed");
     drawStatus(renderer, "Hub Sync", "Hub unreachable", "");
     delay(1200);
-    wifiOff();
-    return;
+    return -1;
   }
 
   JsonDocument manifest;
@@ -155,8 +153,7 @@ void run(const GfxRenderer& renderer, HalGPIO& gpio) {
     LOG_ERR(TAG, "manifest parse failed");
     drawStatus(renderer, "Hub Sync", "Bad manifest", "");
     delay(1200);
-    wifiOff();
-    return;
+    return -1;
   }
 
   std::vector<Entry> entries;
@@ -164,7 +161,6 @@ void run(const GfxRenderer& renderer, HalGPIO& gpio) {
     entries.push_back({std::string(e["path"] | ""), std::string(e["hash"] | ""), std::string(e["type"] | "file")});
   }
 
-  // Local sync record: path -> last-synced hash.
   std::string syncedRaw;
   JsonDocument synced;
   if (readFile(SYNCED_PATH, syncedRaw)) deserializeJson(synced, syncedRaw);
@@ -175,7 +171,7 @@ void run(const GfxRenderer& renderer, HalGPIO& gpio) {
     index++;
     if (e.hash.empty()) continue;
     const char* have = synced[e.path];
-    if (have != nullptr && e.hash == have) continue;  // already have this version
+    if (have != nullptr && e.hash == have) continue;
 
     const std::string dest = targetPath(e);
     drawStatus(renderer, "Hub Sync", "Downloading " + std::to_string(index) + "/" + std::to_string(entries.size()),
@@ -196,20 +192,78 @@ void run(const GfxRenderer& renderer, HalGPIO& gpio) {
     if (gpio.wasAnyPressed()) break;  // user skip
   }
 
-  // Persist the updated sync record.
-  {
-    HalFile f;
-    if (Storage.openFileForWrite(TAG, SYNCED_PATH, f)) {
-      serializeJson(synced, f);
-      f.close();
+  // Stamp last-sync time (monotonic across deep sleep) for the throttle.
+  synced[LAST_SYNC_KEY] = static_cast<long>(time(nullptr));
+  HalFile f;
+  if (Storage.openFileForWrite(TAG, SYNCED_PATH, f)) {
+    serializeJson(synced, f);
+    f.close();
+  }
+  return downloaded;
+}
+
+}  // namespace
+
+namespace HubSync {
+
+void run(const GfxRenderer& renderer, HalGPIO& gpio) {
+  HubConfig cfg;
+  if (!loadConfig(cfg) || !cfg.enabled) {
+    return;  // no config => feature off
+  }
+
+  // Throttle: skip silently if we synced within the configured interval. The
+  // timestamp persists across deep sleep, so repeated open/close doesn't re-sync.
+  const uint16_t intervalMin = SETTINGS.hubSyncIntervalMinutes;
+  if (intervalMin > 0) {
+    std::string syncedRaw;
+    JsonDocument synced;
+    if (readFile(SYNCED_PATH, syncedRaw)) deserializeJson(synced, syncedRaw);
+    const time_t now = time(nullptr);
+    const time_t last = static_cast<time_t>(synced[LAST_SYNC_KEY] | 0L);
+    if (last > 0 && now >= last && (now - last) < static_cast<time_t>(intervalMin) * 60) {
+      LOG_INF(TAG, "Hub sync throttled (%ld s since last, interval %u min)", static_cast<long>(now - last),
+              static_cast<unsigned>(intervalMin));
+      return;  // fast, silent boot
     }
   }
 
-  drawStatus(renderer, "Hub Sync", downloaded > 0 ? "Synced " + std::to_string(downloaded) + " item(s)" : "Up to date",
-             "");
-  delay(700);
+  LOG_INF(TAG, "Hub sync starting (%s)", cfg.url.c_str());
+  if (!connectWifi(renderer, gpio)) {
+    drawStatus(renderer, "Hub Sync", "Wi-Fi unavailable", "");
+    delay(1200);
+    wifiOff();
+    return;
+  }
+
+  const int downloaded = doSync(cfg, renderer, gpio);
+  if (downloaded >= 0) {
+    drawStatus(renderer, "Hub Sync",
+               downloaded > 0 ? "Synced " + std::to_string(downloaded) + " item(s)" : "Up to date", "");
+    delay(700);
+  }
   wifiOff();
   esp_task_wdt_reset();
+}
+
+void syncNow(const GfxRenderer& renderer, HalGPIO& gpio) {
+  HubConfig cfg;
+  if (!loadConfig(cfg) || !cfg.enabled) {
+    drawStatus(renderer, "Hub Sync", "No hub configured", "(/.crosspoint/hub.json)");
+    delay(1500);
+    return;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    drawStatus(renderer, "Hub Sync", "Connect to Wi-Fi first", "");
+    delay(1500);
+    return;
+  }
+  const int downloaded = doSync(cfg, renderer, gpio);
+  if (downloaded >= 0) {
+    drawStatus(renderer, "Hub Sync",
+               downloaded > 0 ? "Synced " + std::to_string(downloaded) + " item(s)" : "Up to date", "");
+    delay(900);
+  }
 }
 
 }  // namespace HubSync

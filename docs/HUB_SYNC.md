@@ -41,6 +41,17 @@ Without this file (or with `enabled:false`), boot is unchanged.
 
 Delta sync means a boot with nothing new is a single small manifest request.
 
+## Throttle, Wi-Fi fallback, manual sync
+
+- **Throttle:** Settings → System → **Hub Sync Interval (min)** (default 60, 0 = every
+  boot). Within the interval, boot skips the sync silently (the last-sync time
+  persists across deep sleep), so repeatedly opening/closing the reader doesn't
+  re-sync and add latency between reads.
+- **Wi-Fi fallback:** connects to the last-used network first, then tries every
+  other saved network until one works.
+- **Manual "Sync now":** in File Transfer mode (STA), the **Select** button pulls
+  from the hub immediately over the already-connected Wi-Fi (ignores the throttle).
+
 ## Notes / limits (v1)
 
 - HTTPS is verified against the firmware's CA bundle (same path OTA uses) — no

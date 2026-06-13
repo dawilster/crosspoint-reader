@@ -252,6 +252,8 @@ class CrossPointSettings {
   uint8_t language = 0;
   // Quick Resume: keep current content visible with moon icon instead of showing a static sleep screen.
   uint8_t quickResumeSleepScreen = QUICK_RESUME_NEVER;
+  // Minimum minutes between hub pull-syncs on boot (throttle). 0 = sync every boot.
+  uint8_t hubSyncIntervalMinutes = 60;
 
   ~CrossPointSettings() = default;
 
@@ -261,6 +263,9 @@ class CrossPointSettings {
   static constexpr uint8_t MIN_SLEEP_TIMEOUT_MINUTES = 1;
   static constexpr uint8_t SLEEP_TIMEOUT_NEVER_MINUTES = 31;
   static constexpr uint8_t MAX_SLEEP_TIMEOUT_MINUTES = SLEEP_TIMEOUT_NEVER_MINUTES;
+
+  static constexpr uint8_t MIN_HUB_SYNC_MINUTES = 0;
+  static constexpr uint8_t MAX_HUB_SYNC_MINUTES = 240;
 
   // Callback to resolve SD card font IDs. Set by SdCardFontSystem::begin().
   // Returns font ID or 0 if not found.
